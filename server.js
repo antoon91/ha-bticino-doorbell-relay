@@ -33,6 +33,12 @@ app.post('/start', async (req, res) => {
         return res.status(400).json({ error: 'Missing config data' });
     }
 
+    // Reuse the existing stream if it's already active to prevent redundant calls to the intercom
+    if (page && !page.isClosed()) {
+        console.log('Stream session is already active. Reusing existing stream!');
+        return res.json({ status: 'started', rtsp_url: 'rtsp://localhost:8554/doorbell' });
+    }
+
     try {
         if (!browser) {
             browser = await chromium.launch({
