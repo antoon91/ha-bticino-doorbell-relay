@@ -1,5 +1,5 @@
 # Use Playwright's official image as base (contains Node and Chromium dependencies)
-FROM mcr.microsoft.com/playwright:v1.44.0-jammy
+FROM mcr.microsoft.com/playwright:v1.60.0-jammy
 
 # Install MediaMTX
 WORKDIR /app
