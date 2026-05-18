@@ -1,0 +1,6 @@
+node_modules/
+.env
+mediamtx
+mediamtx_*.tar.gz
+*.log
+.DS_Store

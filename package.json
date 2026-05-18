@@ -1,0 +1,14 @@
+{
+  "name": "bticino-relay",
+  "version": "1.0.0",
+  "description": "Bticino WebRTC to RTSP Relay",
+  "main": "server.js",
+  "dependencies": {
+    "express": "^4.19.2",
+    "playwright": "^1.44.0",
+    "ws": "^8.17.0"
+  },
+  "scripts": {
+    "start": "node server.js"
+  }
+}
