@@ -7,17 +7,45 @@ const port = 3000;
 app.use(express.json());
 app.use(express.static('public'));
 
-// Log incoming requests
+// Log incoming requests and outgoing responses
 app.use((req, res, next) => {
-    console.log(`[${new Date().toISOString()}] Incoming Request: ${req.method} ${req.url}`);
+    const ip = req.headers['x-forwarded-for'] || req.socket.remoteAddress;
+    const userAgent = req.headers['user-agent'] || 'Unknown';
+    const startTime = new Date();
+    
+    console.log(`[${startTime.toISOString()}] ➡️ Incoming Request from ${ip} (${userAgent}): ${req.method} ${req.url}`);
     if (req.method === 'POST' && req.url === '/start') {
-        console.log('Parameters: ', {
+        console.log('    Parameters: ', {
             bridge_id: req.body.bridge_id,
             module_id: req.body.module_id,
             has_token: !!req.body.access_token,
             ice_servers_count: req.body.ice_servers ? req.body.ice_servers.length : 0
         });
     }
+
+    // Intercept response body for logging
+    const originalJson = res.json;
+    res.json = function (body) {
+        res.locals.responseBody = body;
+        return originalJson.apply(this, arguments);
+    };
+
+    const originalSend = res.send;
+    res.send = function (body) {
+        if (!res.locals.responseBody) {
+            res.locals.responseBody = body;
+        }
+        return originalSend.apply(this, arguments);
+    };
+
+    res.on('finish', () => {
+        const duration = new Date() - startTime;
+        console.log(`[${new Date().toISOString()}] ⬅️ Outgoing Response to ${ip}: HTTP ${res.statusCode} (took ${duration}ms)`);
+        if (res.locals.responseBody) {
+            console.log('    Payload:', typeof res.locals.responseBody === 'object' ? JSON.stringify(res.locals.responseBody, null, 2) : res.locals.responseBody);
+        }
+    });
+
     next();
 });
 
