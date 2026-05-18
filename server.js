@@ -7,6 +7,20 @@ const port = 3000;
 app.use(express.json());
 app.use(express.static('public'));
 
+// Log incoming requests
+app.use((req, res, next) => {
+    console.log(`[${new Date().toISOString()}] Incoming Request: ${req.method} ${req.url}`);
+    if (req.method === 'POST' && req.url === '/start') {
+        console.log('Parameters: ', {
+            bridge_id: req.body.bridge_id,
+            module_id: req.body.module_id,
+            has_token: !!req.body.access_token,
+            ice_servers_count: req.body.ice_servers ? req.body.ice_servers.length : 0
+        });
+    }
+    next();
+});
+
 let browser = null;
 let context = null;
 let page = null;
