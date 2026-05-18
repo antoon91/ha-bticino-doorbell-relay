@@ -56,10 +56,33 @@ app.post('/start', async (req, res) => {
             window.BTICINO_CONFIG = configData;
         }, config);
 
+        // Setup promise to wait for WHIP activation
+        const whipReady = new Promise((resolve) => {
+            const timeout = setTimeout(() => {
+                console.log('Timeout waiting for WHIP stream to start...');
+                resolve(false);
+            }, 10000); // 10 seconds timeout
+
+            page.on('console', msg => {
+                const text = msg.text();
+                if (text.includes('WHIP Answer set') || text.includes('RELAY ACTIVE')) {
+                    clearTimeout(timeout);
+                    resolve(true);
+                }
+            });
+        });
+
         // Load the relay page
         await page.goto(`http://localhost:${port}/relay.html`);
+        console.log('Relay page loaded, waiting for WHIP stream to start...');
         
-        console.log('Relay page loaded and started');
+        const isReady = await whipReady;
+        if (isReady) {
+            console.log('Stream is ACTIVE and publishing to MediaMTX!');
+        } else {
+            console.log('Stream initiation timed out, proceeding anyway...');
+        }
+        
         res.json({ status: 'started', rtsp_url: 'rtsp://localhost:8554/doorbell' });
 
     } catch (error) {
