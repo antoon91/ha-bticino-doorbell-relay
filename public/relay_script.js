@@ -88,6 +88,122 @@ async function startRelay() {
         return;
     }
 
+    // Start placeholder stream drawing (forces the H264 encoder to output valid stream right away)
+    function startPlaceholderDrawing() {
+        const canvas = document.createElement('canvas');
+        canvas.width = 640;
+        canvas.height = 480;
+        canvas.style.position = 'absolute';
+        canvas.style.left = '-9999px';
+        canvas.style.top = '-9999px';
+        document.body.appendChild(canvas);
+        
+        const ctx = canvas.getContext('2d');
+        let angle = 0;
+        const startTime = Date.now();
+        
+        canvasInterval = setInterval(() => {
+            // Background
+            ctx.fillStyle = '#0a0b10';
+            ctx.fillRect(0, 0, 640, 480);
+            
+            // Grid effect
+            ctx.strokeStyle = '#1e293b';
+            ctx.lineWidth = 1;
+            for (let i = 0; i < 640; i += 40) {
+                ctx.beginPath();
+                ctx.moveTo(i, 0);
+                ctx.lineTo(i, 480);
+                ctx.stroke();
+            }
+            for (let j = 0; j < 480; j += 40) {
+                ctx.beginPath();
+                ctx.moveTo(0, j);
+                ctx.lineTo(640, j);
+                ctx.stroke();
+            }
+            
+            // Glowing pulsing accent circle
+            const pulse = Math.abs(Math.sin((Date.now() - startTime) / 1000));
+            ctx.strokeStyle = `rgba(99, 102, 241, ${0.15 + pulse * 0.35})`;
+            ctx.lineWidth = 3;
+            ctx.beginPath();
+            ctx.arc(320, 240, 70, 0, Math.PI * 2);
+            ctx.stroke();
+            
+            // Outer spinner
+            ctx.strokeStyle = '#a855f7';
+            ctx.lineWidth = 5;
+            ctx.beginPath();
+            ctx.arc(320, 240, 50, angle, angle + Math.PI * 0.4);
+            ctx.stroke();
+            angle += 0.1;
+            
+            // Title text
+            ctx.fillStyle = '#f3f4f6';
+            ctx.font = 'bold 22px system-ui, -apple-system, sans-serif';
+            ctx.textAlign = 'center';
+            ctx.fillText('BTicino Doorbell Relay', 320, 130);
+            
+            ctx.fillStyle = '#9ca3af';
+            ctx.font = '15px system-ui, -apple-system, sans-serif';
+            ctx.fillText('Establishing Netatmo call...', 320, 330);
+            
+            // Elapsed time
+            const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
+            ctx.fillStyle = '#6366f1';
+            ctx.font = '13px monospace';
+            ctx.fillText(`Negotiation time: ${elapsed}s`, 320, 365);
+        }, 100); // 10 fps
+        
+        const captureMethod = canvas.captureStream || canvas.webkitCaptureStream;
+        if (!captureMethod) {
+            console.error('❌ canvas.captureStream is NOT supported in this browser context!');
+            return null;
+        }
+        return captureMethod.call(canvas, 10);
+    }
+
+    console.log('Generating placeholder video track...');
+    const placeholderStream = startPlaceholderDrawing();
+    let placeholderVideoTrack = null;
+    if (placeholderStream) {
+        const videoTracks = placeholderStream.getVideoTracks();
+        if (videoTracks.length > 0) {
+            placeholderVideoTrack = videoTracks[0];
+            console.log('✅ Generated placeholder video track:', placeholderVideoTrack.label);
+        } else {
+            console.error('❌ Placeholder stream has NO video tracks!');
+        }
+    } else {
+        console.error('❌ Failed to create placeholder stream!');
+    }
+
+    let placeholderAudioTrack = null;
+    if (localStream) {
+        const audioTracks = localStream.getAudioTracks();
+        if (audioTracks.length > 0) {
+            placeholderAudioTrack = audioTracks[0];
+            console.log('✅ Generated placeholder audio track:', placeholderAudioTrack.label);
+        } else {
+            console.error('❌ Local stream has NO audio tracks!');
+        }
+    }
+
+    const initTracks = [];
+    if (placeholderAudioTrack) initTracks.push(placeholderAudioTrack);
+    if (placeholderVideoTrack) initTracks.push(placeholderVideoTrack);
+
+    if (initTracks.length === 0) {
+        console.error('❌ No tracks available for initial WHIP connection!');
+        updateStatus('Error: No media tracks initialized', 'error');
+        return;
+    }
+
+    console.log(`Starting WHIP with ${initTracks.length} tracks.`);
+    const initStream = new MediaStream(initTracks);
+    forwardToMediaMTX(initStream);
+
     // --- Signaling Connection (Simplified version of _connectToNetatmo) ---
     ws = new WebSocket('wss://app-ws.netatmo.net/appws/');
 
@@ -304,30 +420,49 @@ async function startRelay() {
                     }
                     
                     // Start forwarding if:
-                    // Audio packets are flowing AND video has decoded at least one frame (so video is active and structured)
-                    if (audioPackets > 0 && videoFramesDecoded > 0) {
+                    // 1. Audio packets are flowing AND video has decoded at least one frame (so video is active and structured)
+                    // 2. Or if connection is established and 8 seconds elapsed, start with whatever packets are flowing (fallback)
+                    if ((audioPackets > 0 && videoFramesDecoded > 0) || (connectionStartTime && elapsed > 8000 && (audioPackets > 0 || videoPackets > 0))) {
                         clearInterval(checkInterval);
                         if (!forwardingStarted) {
                             forwardingStarted = true;
-                            const logReady = '✅ Real media ready! Starting WHIP connection...';
+                            const logReady = '✅ Real media ready! Replacing tracks on WHIP sender...';
                             console.log(logReady);
                             uiLog(logReady, 'success');
 
                             const netatmoVideoTrack = arrivedTracks.find(t => t.kind === 'video');
                             const netatmoAudioTrack = arrivedTracks.find(t => t.kind === 'audio');
 
-                            const outboundTracks = [];
-                            if (netatmoAudioTrack) outboundTracks.push(netatmoAudioTrack);
-                            if (netatmoVideoTrack) outboundTracks.push(netatmoVideoTrack);
-
-                            if (outboundTracks.length === 0) {
-                                console.error('❌ No tracks found to forward!');
-                                updateStatus('Error: No tracks to forward', 'error');
-                                return;
+                            if (videoSender && netatmoVideoTrack) {
+                                console.log('🔄 Swapping in real Video track');
+                                videoSender.replaceTrack(netatmoVideoTrack)
+                                    .then(() => {
+                                        console.log('✅ Video track swapped successfully!');
+                                        uiLog('✅ Video stream swapped to real doorbell camera!', 'success');
+                                    })
+                                    .catch(err => {
+                                        console.error('❌ Video track swap failed:', err);
+                                        uiLog(`❌ Video track swap failed: ${err.message}`, 'error');
+                                    });
                             }
-
-                            const outboundStream = new MediaStream(outboundTracks);
-                            forwardToMediaMTX(outboundStream);
+                            if (audioSender && netatmoAudioTrack) {
+                                console.log('🔄 Swapping in real Audio track');
+                                audioSender.replaceTrack(netatmoAudioTrack)
+                                    .then(() => {
+                                        console.log('✅ Audio track swapped successfully!');
+                                        uiLog('✅ Audio stream swapped to real doorbell microphone!', 'success');
+                                    })
+                                    .catch(err => {
+                                        console.error('❌ Audio track swap failed:', err);
+                                        uiLog(`❌ Audio track swap failed: ${err.message}`, 'error');
+                                    });
+                            }
+                            
+                            // Stop placeholder canvas drawing to save resources
+                            if (canvasInterval) {
+                                clearInterval(canvasInterval);
+                                canvasInterval = null;
+                            }
                         }
                     }
                 } catch (err) {

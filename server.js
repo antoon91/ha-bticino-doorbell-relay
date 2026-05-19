@@ -161,7 +161,7 @@ app.post('/start', async (req, res) => {
             const timeout = setTimeout(() => {
                 logServerEvent('Timeout waiting for WHIP stream to start...', 'warning');
                 resolve(false);
-            }, 25000); // 25 seconds timeout
+            }, 10000); // 10 seconds timeout
 
             page.on('console', msg => {
                 const text = msg.text();
