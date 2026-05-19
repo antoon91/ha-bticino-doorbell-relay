@@ -1,6 +1,11 @@
 # Use Playwright's official image as base (contains Node and Chromium dependencies)
 FROM mcr.microsoft.com/playwright:v1.60.0-jammy
 
+# Disable hardware video encoders to force GStreamer to use software encoders (x264) in Docker
+# Also set GST_DEBUG to 2 (warnings/errors) to output GStreamer diagnostics
+ENV GST_PLUGIN_FEATURE_RANK=v4l2h264enc:0,omxh264enc:0 \
+    GST_DEBUG="*:2"
+
 # Install MediaMTX and GStreamer H.264 encoders for WebKit
 WORKDIR /app
 RUN apt-get update && apt-get install -y wget curl gstreamer1.0-plugins-base gstreamer1.0-plugins-good gstreamer1.0-plugins-bad gstreamer1.0-plugins-ugly gstreamer1.0-libav && \
