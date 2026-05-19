@@ -65,6 +65,25 @@ let browser = null;
 let context = null;
 let page = null;
 
+async function closeSession() {
+    try {
+        if (page) {
+            logServerEvent('Closing browser page...', 'info');
+            await page.close().catch(() => {});
+            page = null;
+        }
+        if (browser) {
+            logServerEvent('Closing browser...', 'info');
+            await browser.close().catch(() => {});
+            browser = null;
+            context = null;
+        }
+        logServerEvent('Stream session stopped and browser terminated successfully.', 'info');
+    } catch (err) {
+        logServerEvent(`Error during closeSession: ${err.message}`, 'error');
+    }
+}
+
 // Endpoint for Python to push config and start the relay
 app.post('/start', async (req, res) => {
     const config = req.body;
@@ -153,6 +172,14 @@ app.post('/start', async (req, res) => {
             else if (text.includes('✅') || text.includes('success') || text.includes('ready') || text.includes('Binding') || text.includes('TRACK ARRIVED')) type = 'success';
             
             logServerEvent(`[Relay] ${text}`, type);
+
+            // Auto-close session if the peer connection is disconnected or failed
+            if (text.includes('Netatmo ICE Connection State: disconnected') || 
+                text.includes('Netatmo ICE Connection State: failed') ||
+                text.includes('Netatmo ICE Connection State: closed')) {
+                logServerEvent('ICE Connection lost. Cleaning up session...', 'warning');
+                closeSession().catch(err => console.error('Error auto-closing session:', err));
+            }
         });
         
         // Pass config to the page via a global variable
@@ -198,16 +225,7 @@ app.post('/start', async (req, res) => {
 // Endpoint to stop the relay
 app.post('/stop', async (req, res) => {
     try {
-        if (page) {
-            await page.close();
-            page = null;
-        }
-        if (browser) {
-            await browser.close();
-            browser = null;
-            context = null;
-        }
-        logServerEvent('Stream session stopped and browser terminated successfully.', 'info');
+        await closeSession();
         res.json({ status: 'stopped' });
     } catch (error) {
         logServerEvent(`Error stopping stream session: ${error.message}`, 'error');
@@ -238,6 +256,10 @@ app.post('/mediamtx-event', express.json(), (req, res) => {
         eventMsg = `🎥 [MediaMTX] Stream published & ready on path: /${path} (Source: ${type || 'N/A'})`;
     } else if (event === 'not_ready') {
         eventMsg = `🎥 [MediaMTX] Stream stopped publishing / offline on path: /${path}`;
+        if (path === 'doorbell') {
+            logServerEvent('Stream went offline on MediaMTX. Cleaning up session...', 'warning');
+            closeSession().catch(err => console.error('Error auto-closing session:', err));
+        }
     } else if (event === 'read') {
         eventMsg = `👥 [MediaMTX] Client started reading RTSP stream: /${path} (Reader: ${type || 'N/A'}, ID: ${id || 'N/A'})`;
     } else if (event === 'unread') {
