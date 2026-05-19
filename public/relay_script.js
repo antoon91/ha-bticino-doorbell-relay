@@ -90,6 +90,11 @@ async function startRelay() {
         const canvas = document.createElement('canvas');
         canvas.width = 640;
         canvas.height = 480;
+        canvas.style.position = 'absolute';
+        canvas.style.left = '-9999px';
+        canvas.style.top = '-9999px';
+        document.body.appendChild(canvas);
+        
         const ctx = canvas.getContext('2d');
         let angle = 0;
         const startTime = Date.now();
@@ -148,15 +153,52 @@ async function startRelay() {
             ctx.fillText(`Negotiation time: ${elapsed}s`, 320, 365);
         }, 100); // 10 fps
         
-        return canvas.captureStream(10);
+        const captureMethod = canvas.captureStream || canvas.webkitCaptureStream;
+        if (!captureMethod) {
+            console.error('❌ canvas.captureStream is NOT supported in this browser context!');
+            return null;
+        }
+        return captureMethod.call(canvas, 10);
     }
 
+    console.log('Generating placeholder video track...');
     const placeholderStream = startPlaceholderDrawing();
-    const placeholderVideoTrack = placeholderStream.getVideoTracks()[0];
-    const placeholderAudioTrack = localStream.getAudioTracks()[0];
-    
-    // Start pushing placeholder stream to MediaMTX immediately
-    const initStream = new MediaStream([placeholderAudioTrack, placeholderVideoTrack]);
+    let placeholderVideoTrack = null;
+    if (placeholderStream) {
+        const videoTracks = placeholderStream.getVideoTracks();
+        if (videoTracks.length > 0) {
+            placeholderVideoTrack = videoTracks[0];
+            console.log('✅ Generated placeholder video track:', placeholderVideoTrack.label);
+        } else {
+            console.error('❌ Placeholder stream has NO video tracks!');
+        }
+    } else {
+        console.error('❌ Failed to create placeholder stream!');
+    }
+
+    let placeholderAudioTrack = null;
+    if (localStream) {
+        const audioTracks = localStream.getAudioTracks();
+        if (audioTracks.length > 0) {
+            placeholderAudioTrack = audioTracks[0];
+            console.log('✅ Generated placeholder audio track:', placeholderAudioTrack.label);
+        } else {
+            console.error('❌ Local stream has NO audio tracks!');
+        }
+    }
+
+    const initTracks = [];
+    if (placeholderAudioTrack) initTracks.push(placeholderAudioTrack);
+    if (placeholderVideoTrack) initTracks.push(placeholderVideoTrack);
+
+    if (initTracks.length === 0) {
+        console.error('❌ No tracks available for initial WHIP connection!');
+        updateStatus('Error: No media tracks initialized', 'error');
+        return;
+    }
+
+    console.log(`Starting WHIP with ${initTracks.length} tracks.`);
+    const initStream = new MediaStream(initTracks);
     forwardToMediaMTX(initStream);
 
     // --- Signaling Connection (Simplified version of _connectToNetatmo) ---
