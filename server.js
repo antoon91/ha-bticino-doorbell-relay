@@ -82,8 +82,9 @@ app.post('/start', async (req, res) => {
     try {
         if (!browser) {
             try {
-                // Try launching default Playwright-packaged Chromium first (highly stable, native H264/VP8/VP9 on Linux ARM64)
+                // Try launching native system Chromium (/usr/bin/chromium) first for H.264 support
                 browser = await chromium.launch({
+                    executablePath: '/usr/bin/chromium',
                     args: [
                         '--use-fake-ui-for-media-stream',
                         '--use-fake-device-for-media-stream',
@@ -95,12 +96,11 @@ app.post('/start', async (req, res) => {
                         '--disable-renderer-backgrounding'
                     ]
                 });
-                logServerEvent('Launched default Chromium successfully', 'info');
+                logServerEvent('Launched system Chromium successfully with H.264 support', 'info');
             } catch (err) {
-                logServerEvent(`Default Chromium launch failed: ${err.message}. Trying Google Chrome channel...`, 'warning');
+                logServerEvent(`System Chromium launch failed: ${err.message}. Trying default Playwright Chromium...`, 'warning');
                 try {
                     browser = await chromium.launch({
-                        channel: 'chrome',
                         args: [
                             '--use-fake-ui-for-media-stream',
                             '--use-fake-device-for-media-stream',
@@ -112,9 +112,9 @@ app.post('/start', async (req, res) => {
                             '--disable-renderer-backgrounding'
                         ]
                     });
-                    logServerEvent('Launched Google Chrome channel successfully', 'info');
-                } catch (chromeErr) {
-                    logServerEvent(`Google Chrome channel launch failed: ${chromeErr.message}. Trying WebKit...`, 'warning');
+                    logServerEvent('Launched default Playwright Chromium successfully', 'info');
+                } catch (defaultErr) {
+                    logServerEvent(`Default Playwright Chromium launch failed: ${defaultErr.message}. Trying WebKit...`, 'warning');
                     try {
                         browser = await webkit.launch();
                         logServerEvent('Launched WebKit successfully with H.264 support', 'info');
@@ -169,7 +169,7 @@ app.post('/start', async (req, res) => {
 
             page.on('console', msg => {
                 const text = msg.text();
-                if (text.includes('WHIP Answer set') || text.includes('RELAY ACTIVE')) {
+                if (text.includes('Netatmo connection established') || text.includes('WebRTC Insertable Streams supported')) {
                     clearTimeout(timeout);
                     resolve(true);
                 }
@@ -178,11 +178,11 @@ app.post('/start', async (req, res) => {
 
         // Load the relay page
         await page.goto(`http://localhost:${port}/relay.html`);
-        logServerEvent('Relay page loaded, waiting for WHIP stream to start...', 'info');
+        logServerEvent('Relay page loaded, waiting for Netatmo stream to connect...', 'info');
         
         const isReady = await whipReady;
         if (isReady) {
-            logServerEvent('Stream is ACTIVE and publishing to MediaMTX!', 'success');
+            logServerEvent('Stream is ACTIVE and forwarding to Python!', 'success');
         } else {
             logServerEvent('Stream initiation timed out, proceeding anyway...', 'warning');
         }

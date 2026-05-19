@@ -40,9 +40,16 @@ async def handle_client(websocket):
             
     logger_task = asyncio.create_task(log_output())
 
+    frame_count = 0
     try:
         async for message in websocket:
             if isinstance(message, bytes):
+                frame_count += 1
+                if frame_count == 1:
+                    print(f"📥 Received FIRST frame from browser! Size: {len(message)} bytes")
+                elif frame_count % 30 == 0:
+                    print(f"📥 Received {frame_count} frames from browser. Last size: {len(message)} bytes")
+                
                 try:
                     proc.stdin.write(message)
                     proc.stdin.flush()

@@ -1,0 +1,7 @@
+node_modules
+mediamtx
+*.log
+.git
+.gitignore
+Dockerfile
+mediamtx.tar.gz

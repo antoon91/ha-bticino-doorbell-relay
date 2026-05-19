@@ -22,6 +22,12 @@ RUN apt-get update && apt-get install -y wget curl python3 python3-pip ffmpeg &&
     tar -xvzf mediamtx_v1.9.0_linux_${MEDIAMTX_ARCH}.tar.gz && \
     rm mediamtx_v1.9.0_linux_${MEDIAMTX_ARCH}.tar.gz
 
+# Install snap-less Chromium with H.264 support from xtradeb PPA
+RUN apt-get update && apt-get install -y software-properties-common && \
+    add-apt-repository -y ppa:xtradeb/apps && \
+    apt-get update && \
+    DEBIAN_FRONTEND=noninteractive apt-get install -y chromium
+
 # Copy project files
 COPY package.json .
 RUN npm install
