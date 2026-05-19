@@ -304,7 +304,7 @@ async function startRelay() {
         updateStatus('Starting call sequence...');
         
         // Connect to Python WebSocket streamer
-        pyWs = new WebSocket('ws://localhost:9999');
+        pyWs = new WebSocket('ws://127.0.0.1:9999');
         pyWs.binaryType = 'arraybuffer';
         pyWs.onopen = () => {
             console.log('🔌 Connected to Python WebSocket streamer');
