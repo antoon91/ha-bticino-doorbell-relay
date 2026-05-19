@@ -192,7 +192,49 @@ async function startRelay() {
 
         let forwardingStarted = false;
         let arrivedTracks = [];
-        let forwardTimeout = null;
+        let trackTimeout = null;
+
+        function startMediaFlowCheck() {
+            if (forwardingStarted) return;
+            console.log('⏳ Waiting for media packets to flow from Netatmo...');
+            const startTime = Date.now();
+            const checkInterval = setInterval(async () => {
+                try {
+                    const stats = await pc.getStats();
+                    let audioPackets = 0;
+                    let videoPackets = 0;
+                    
+                    stats.forEach(report => {
+                        if (report.type === 'inbound-rtp') {
+                            if (report.kind === 'audio') {
+                                audioPackets = report.packetsReceived || 0;
+                            } else if (report.kind === 'video') {
+                                videoPackets = report.packetsReceived || 0;
+                            }
+                        }
+                    });
+                    
+                    console.log(`⏳ Media flow check: Audio packets: ${audioPackets}, Video packets: ${videoPackets}`);
+                    
+                    const elapsed = Date.now() - startTime;
+                    
+                    // Start forwarding if:
+                    // 1. Packets are actively flowing on both tracks
+                    // 2. Or if 6 seconds elapsed, start with whatever packets are flowing (at least one)
+                    if ((audioPackets > 0 && videoPackets > 0) || (elapsed > 6000 && (audioPackets > 0 || videoPackets > 0))) {
+                        clearInterval(checkInterval);
+                        if (!forwardingStarted) {
+                            forwardingStarted = true;
+                            console.log('✅ Media packets flowing! Starting WHIP forwarding...');
+                            const combinedStream = new MediaStream(arrivedTracks);
+                            forwardToMediaMTX(combinedStream);
+                        }
+                    }
+                } catch (err) {
+                    console.warn('Error in media flow check:', err.message);
+                }
+            }, 500);
+        }
 
         pc.ontrack = (e) => {
             const track = e.track;
@@ -206,29 +248,18 @@ async function startRelay() {
                 videoEl.srcObject = stream;
             }
 
-            // Clear any active timeout
-            if (forwardTimeout) clearTimeout(forwardTimeout);
+            if (trackTimeout) clearTimeout(trackTimeout);
 
             const hasAudio = arrivedTracks.some(t => t.kind === 'audio');
             const hasVideo = arrivedTracks.some(t => t.kind === 'video');
 
             if (hasAudio && hasVideo) {
-                if (!forwardingStarted) {
-                    forwardingStarted = true;
-                    console.log('✅ Both audio and video tracks arrived. Starting WHIP forwarding...');
-                    const combinedStream = new MediaStream(arrivedTracks);
-                    forwardToMediaMTX(combinedStream);
-                }
+                startMediaFlowCheck();
             } else {
-                // Wait up to 1 second for the other track to arrive
-                forwardTimeout = setTimeout(() => {
-                    if (!forwardingStarted) {
-                        forwardingStarted = true;
-                        console.log(`⚠️ Only one track arrived (${arrivedTracks[0].kind}). Starting WHIP forwarding anyway...`);
-                        const combinedStream = new MediaStream(arrivedTracks);
-                        forwardToMediaMTX(combinedStream);
-                    }
-                }, 1000);
+                // Wait up to 1.5 seconds for the other track to arrive before checking packets
+                trackTimeout = setTimeout(() => {
+                    startMediaFlowCheck();
+                }, 1500);
             }
         };
 
