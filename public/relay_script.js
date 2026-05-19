@@ -262,18 +262,22 @@ async function startRelay() {
         });
 
         // Force H264 for WHIP on the video transceiver
-        const transceivers = whipPc.getTransceivers();
-        const videoTransceiver = transceivers.find(t => t.sender.track?.kind === 'video');
-        if (videoTransceiver && RTCRtpSender.getCapabilities) {
-            const codecs = RTCRtpSender.getCapabilities('video').codecs;
-            console.log('Available Video Codecs:', codecs.map(c => c.mimeType).join(', '));
-            const h264Codecs = codecs.filter(c => c.mimeType === 'video/H264');
-            if (h264Codecs.length > 0) {
-                console.log('✅ Forcing H264 for WHIP');
-                videoTransceiver.setCodecPreferences(h264Codecs);
-            } else {
-                console.warn('⚠️ H264 codec NOT supported by this browser!');
+        try {
+            const transceivers = whipPc.getTransceivers();
+            const videoTransceiver = transceivers.find(t => t.sender.track?.kind === 'video');
+            if (videoTransceiver && typeof RTCRtpSender.getCapabilities === 'function') {
+                const codecs = RTCRtpSender.getCapabilities('video').codecs;
+                console.log('Available Video Codecs:', codecs.map(c => c.mimeType).join(', '));
+                const h264Codecs = codecs.filter(c => c.mimeType === 'video/H264');
+                if (h264Codecs.length > 0) {
+                    console.log('✅ Forcing H264 for WHIP');
+                    videoTransceiver.setCodecPreferences(h264Codecs);
+                } else {
+                    console.warn('⚠️ H264 codec NOT supported by this browser!');
+                }
             }
+        } catch (codecErr) {
+            console.warn('⚠️ Failed to set codec preferences:', codecErr.message);
         }
 
         const offer = await whipPc.createOffer();
