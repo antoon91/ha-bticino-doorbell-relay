@@ -4,6 +4,15 @@ const path = require('path');
 const app = express();
 const port = 3000;
 
+const serverLogs = [];
+
+function logServerEvent(msg, type = 'info') {
+    const time = new Date().toLocaleTimeString();
+    console.log(`[${new Date().toISOString()}] [${type.toUpperCase()}] ${msg}`);
+    serverLogs.push({ time, text: msg, type });
+    if (serverLogs.length > 200) serverLogs.shift();
+}
+
 app.use(express.json());
 app.use(express.static('public'));
 
@@ -13,7 +22,11 @@ app.use((req, res, next) => {
     const userAgent = req.headers['user-agent'] || 'Unknown';
     const startTime = new Date();
     
-    console.log(`[${startTime.toISOString()}] ➡️ Incoming Request from ${ip} (${userAgent}): ${req.method} ${req.url}`);
+    // Ignore log polling requests from spamming terminal logs
+    if (req.url !== '/logs') {
+        logServerEvent(`➡️ Incoming Request: ${req.method} ${req.url} (from ${ip})`, 'info');
+    }
+    
     if (req.method === 'POST' && req.url === '/start') {
         console.log('    Parameters: ', {
             bridge_id: req.body.bridge_id,
@@ -40,9 +53,8 @@ app.use((req, res, next) => {
 
     res.on('finish', () => {
         const duration = new Date() - startTime;
-        console.log(`[${new Date().toISOString()}] ⬅️ Outgoing Response to ${ip}: HTTP ${res.statusCode} (took ${duration}ms)`);
-        if (res.locals.responseBody) {
-            console.log('    Payload:', typeof res.locals.responseBody === 'object' ? JSON.stringify(res.locals.responseBody, null, 2) : res.locals.responseBody);
+        if (req.url !== '/logs') {
+            logServerEvent(`⬅️ Outgoing Response: HTTP ${res.statusCode} (took ${duration}ms)`, 'info');
         }
     });
 
@@ -63,7 +75,7 @@ app.post('/start', async (req, res) => {
 
     // Reuse the existing stream if it's already active to prevent redundant calls to the intercom
     if (page && !page.isClosed()) {
-        console.log('Stream session is already active. Reusing existing stream!');
+        logServerEvent('Stream session is already active. Reusing existing stream!', 'info');
         return res.json({ status: 'started', rtsp_url: 'rtsp://localhost:8554/doorbell' });
     }
 
@@ -86,8 +98,18 @@ app.post('/start', async (req, res) => {
 
         page = await context.newPage();
 
-        // Pipe page console logs to terminal
-        page.on('console', msg => console.log('PAGE LOG:', msg.text()));
+        // Pipe page console logs to terminal and serverLogs
+        page.on('console', msg => {
+            const text = msg.text();
+            console.log('PAGE LOG:', text);
+            
+            let type = 'info';
+            if (text.includes('❌') || text.includes('Error') || text.includes('failed') || text.includes('exception')) type = 'error';
+            else if (text.includes('⚠️') || text.includes('Warning') || text.includes('Timeout')) type = 'warning';
+            else if (text.includes('✅') || text.includes('success') || text.includes('ready') || text.includes('Binding') || text.includes('TRACK ARRIVED')) type = 'success';
+            
+            logServerEvent(`[Relay] ${text}`, type);
+        });
         
         // Pass config to the page via a global variable
         await page.addInitScript((configData) => {
@@ -97,7 +119,7 @@ app.post('/start', async (req, res) => {
         // Setup promise to wait for WHIP activation
         const whipReady = new Promise((resolve) => {
             const timeout = setTimeout(() => {
-                console.log('Timeout waiting for WHIP stream to start...');
+                logServerEvent('Timeout waiting for WHIP stream to start...', 'warning');
                 resolve(false);
             }, 10000); // 10 seconds timeout
 
@@ -112,13 +134,13 @@ app.post('/start', async (req, res) => {
 
         // Load the relay page
         await page.goto(`http://localhost:${port}/relay.html`);
-        console.log('Relay page loaded, waiting for WHIP stream to start...');
+        logServerEvent('Relay page loaded, waiting for WHIP stream to start...', 'info');
         
         const isReady = await whipReady;
         if (isReady) {
-            console.log('Stream is ACTIVE and publishing to MediaMTX!');
+            logServerEvent('Stream is ACTIVE and publishing to MediaMTX!', 'success');
         } else {
-            console.log('Stream initiation timed out, proceeding anyway...');
+            logServerEvent('Stream initiation timed out, proceeding anyway...', 'warning');
         }
         
         res.json({ status: 'started', rtsp_url: 'rtsp://localhost:8554/doorbell' });
@@ -152,6 +174,30 @@ app.get('/fetch-config', async (req, res) => {
         console.error('Error fetching config from FastAPI:', error.message);
         res.status(500).json({ error: error.message });
     }
+});
+
+// Endpoint to receive events from MediaMTX hooks
+app.post('/mediamtx-event', express.json(), (req, res) => {
+    const { event, path, type, id } = req.body;
+    let eventMsg = '';
+    if (event === 'ready') {
+        eventMsg = `🎥 [MediaMTX] Stream published & ready on path: /${path} (Source: ${type || 'N/A'})`;
+    } else if (event === 'not_ready') {
+        eventMsg = `🎥 [MediaMTX] Stream stopped publishing / offline on path: /${path}`;
+    } else if (event === 'read') {
+        eventMsg = `👥 [MediaMTX] Client started reading RTSP stream: /${path} (Reader: ${type || 'N/A'}, ID: ${id || 'N/A'})`;
+    } else if (event === 'unread') {
+        eventMsg = `👥 [MediaMTX] Client stopped reading RTSP stream: /${path} (Reader: ${type || 'N/A'}, ID: ${id || 'N/A'})`;
+    } else {
+        eventMsg = `🎥 [MediaMTX] Event: ${event} on path: /${path}`;
+    }
+    logServerEvent(eventMsg, 'success');
+    res.json({ status: 'ok' });
+});
+
+// Endpoint to fetch logs
+app.get('/logs', (req, res) => {
+    res.json(serverLogs);
 });
 
 app.listen(port, () => {

@@ -690,8 +690,8 @@
         });
 
         // Add logs to console
-        const addLog = (text, type = 'info') => {
-            const time = new Date().toLocaleTimeString();
+        const addLog = (text, type = 'info', customTime = null) => {
+            const time = customTime || new Date().toLocaleTimeString();
             const line = document.createElement('div');
             line.className = 'log-line';
             
@@ -708,6 +708,35 @@
             DOM.logConsole.appendChild(line);
             DOM.logConsole.scrollTop = DOM.logConsole.scrollHeight;
         };
+
+        // Poll server-side logs
+        let serverLogIndex = 0;
+        const pollLogs = async () => {
+            try {
+                const response = await fetch('/logs');
+                if (!response.ok) return;
+                const logs = await response.json();
+                
+                if (logs.length < serverLogIndex) {
+                    // Server restarted, clear local console and reset index
+                    DOM.logConsole.innerHTML = '';
+                    serverLogIndex = 0;
+                }
+                
+                if (logs.length > serverLogIndex) {
+                    for (let i = serverLogIndex; i < logs.length; i++) {
+                        const log = logs[i];
+                        addLog(log.text, log.type, log.time);
+                    }
+                    serverLogIndex = logs.length;
+                }
+            } catch (e) {
+                // Ignore polling errors
+            }
+        };
+
+        // Start polling logs
+        setInterval(pollLogs, 1000);
 
         // Toast Notification helper
         const showToast = (message, type = 'info') => {

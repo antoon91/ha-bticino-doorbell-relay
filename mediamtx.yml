@@ -703,3 +703,7 @@ paths:
   # Settings under path "all_others" are applied to all paths that
   # do not match another entry.
   all_others:
+    runOnReady: 'curl -s -X POST -H "Content-Type: application/json" -d "{\"event\":\"ready\",\"path\":\"$MTX_PATH\",\"type\":\"$MTX_SOURCE_TYPE\",\"id\":\"$MTX_SOURCE_ID\"}" http://localhost:3000/mediamtx-event || true'
+    runOnNotReady: 'curl -s -X POST -H "Content-Type: application/json" -d "{\"event\":\"not_ready\",\"path\":\"$MTX_PATH\",\"type\":\"$MTX_SOURCE_TYPE\",\"id\":\"$MTX_SOURCE_ID\"}" http://localhost:3000/mediamtx-event || true'
+    runOnRead: 'curl -s -X POST -H "Content-Type: application/json" -d "{\"event\":\"read\",\"path\":\"$MTX_PATH\",\"type\":\"$MTX_READER_TYPE\",\"id\":\"$MTX_READER_ID\"}" http://localhost:3000/mediamtx-event || true'
+    runOnUnread: 'curl -s -X POST -H "Content-Type: application/json" -d "{\"event\":\"unread\",\"path\":\"$MTX_PATH\",\"type\":\"$MTX_READER_TYPE\",\"id\":\"$MTX_READER_ID\"}" http://localhost:3000/mediamtx-event || true'
