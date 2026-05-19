@@ -1,9 +1,9 @@
 # Use Playwright's official image as base (contains Node and Chromium dependencies)
 FROM mcr.microsoft.com/playwright:v1.60.0-jammy
 
-# Install MediaMTX
+# Install MediaMTX and GStreamer H.264 encoders for WebKit
 WORKDIR /app
-RUN apt-get update && apt-get install -y wget curl && \
+RUN apt-get update && apt-get install -y wget curl gstreamer1.0-libav gstreamer1.0-plugins-ugly && \
     ARCH=$(uname -m) && \
     if [ "$ARCH" = "x86_64" ]; then \
         MEDIAMTX_ARCH="amd64"; \
