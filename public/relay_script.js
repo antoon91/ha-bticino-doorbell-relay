@@ -79,6 +79,9 @@ async function startRelay() {
         osc.connect(dest);
         osc.start();
         localStream = dest.stream;
+        if (audioCtx.state === 'suspended') {
+            audioCtx.resume().catch(e => console.warn('⚠️ Audio context was suspended, failed to resume:', e));
+        }
     } catch (err) {
         console.error('Local stream setup failed:', err);
         updateStatus('Error: Local stream setup failed');
