@@ -194,9 +194,19 @@ app.post('/start', async (req, res) => {
 // Endpoint to stop the relay
 app.post('/stop', async (req, res) => {
     try {
-        if (page) await page.close();
+        if (page) {
+            await page.close();
+            page = null;
+        }
+        if (browser) {
+            await browser.close();
+            browser = null;
+            context = null;
+        }
+        logServerEvent('Stream session stopped and browser terminated successfully.', 'info');
         res.json({ status: 'stopped' });
     } catch (error) {
+        logServerEvent(`Error stopping stream session: ${error.message}`, 'error');
         res.status(500).json({ error: error.message });
     }
 });

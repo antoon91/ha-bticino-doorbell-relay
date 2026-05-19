@@ -3,7 +3,7 @@ FROM mcr.microsoft.com/playwright:v1.60.0-jammy
 
 # Install MediaMTX and GStreamer H.264 encoders for WebKit
 WORKDIR /app
-RUN apt-get update && apt-get install -y wget curl gstreamer1.0-libav gstreamer1.0-plugins-ugly && \
+RUN apt-get update && apt-get install -y wget curl gstreamer1.0-plugins-base gstreamer1.0-plugins-good gstreamer1.0-plugins-bad gstreamer1.0-plugins-ugly gstreamer1.0-libav && \
     ARCH=$(uname -m) && \
     if [ "$ARCH" = "x86_64" ]; then \
         MEDIAMTX_ARCH="amd64"; \
