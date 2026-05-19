@@ -876,7 +876,9 @@
                 addLog(`✅ Stream active! Playback URL: ${result.rtsp_url}`, 'success');
                 showToast('Relay stream started successfully!', 'success');
 
-                DOM.rtspUrlText.textContent = result.rtsp_url || 'rtsp://localhost:8554/doorbell';
+                const currentHost = window.location.hostname;
+                const rtspUrl = (result.rtsp_url || 'rtsp://localhost:8554/doorbell').replace('localhost', currentHost);
+                DOM.rtspUrlText.textContent = rtspUrl;
                 
                 DOM.statusDot.className = 'status-dot active';
                 DOM.statusText.textContent = 'STREAMING';
@@ -887,7 +889,7 @@
                 
                 // Set the iframe source to mediaMTX's native WebRTC player
                 // Adding a timestamp query param helps force a clean reload
-                DOM.videoIframe.src = `http://localhost:8889/doorbell?t=${Date.now()}`;
+                DOM.videoIframe.src = `http://${currentHost}:8889/doorbell?t=${Date.now()}`;
                 
                 DOM.btnStop.disabled = false;
             } catch (err) {

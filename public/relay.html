@@ -1,10 +1,276 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
-    <title>Bticino WebRTC Relay</title>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>BTicino Doorbell Relay Diagnostics</title>
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600;800&family=JetBrains+Mono:wght@400;700&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --bg-color: #080710;
+            --card-bg: rgba(255, 255, 255, 0.03);
+            --border-color: rgba(255, 255, 255, 0.08);
+            --text-color: #f3f4f6;
+            --text-muted: #9ca3af;
+            --primary: #6366f1;
+            --success: #10b981;
+            --warning: #f59e0b;
+            --error: #ef4444;
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            font-family: 'Outfit', sans-serif;
+            background-color: var(--bg-color);
+            color: var(--text-color);
+            min-height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            background-image: 
+                radial-gradient(circle at 10% 20%, rgba(99, 102, 241, 0.15) 0%, transparent 40%),
+                radial-gradient(circle at 90% 80%, rgba(16, 185, 129, 0.1) 0%, transparent 40%);
+            padding: 20px;
+            overflow-x: hidden;
+        }
+
+        .container {
+            width: 100%;
+            max-width: 800px;
+            background: rgba(15, 23, 42, 0.6);
+            backdrop-filter: blur(20px);
+            -webkit-backdrop-filter: blur(20px);
+            border: 1px solid var(--border-color);
+            border-radius: 24px;
+            padding: 40px;
+            box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5);
+        }
+
+        header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin-bottom: 30px;
+            border-bottom: 1px solid var(--border-color);
+            padding-bottom: 20px;
+        }
+
+        h1 {
+            font-size: 24px;
+            font-weight: 800;
+            background: linear-gradient(135deg, #a5b4fc 0%, #6366f1 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            letter-spacing: -0.5px;
+        }
+
+        .status-badge {
+            background: var(--card-bg);
+            border: 1px solid var(--border-color);
+            padding: 6px 16px;
+            border-radius: 99px;
+            font-size: 14px;
+            font-weight: 600;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .status-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background-color: var(--warning);
+            box-shadow: 0 0 8px var(--warning);
+            transition: all 0.3s ease;
+        }
+
+        .status-dot.active {
+            background-color: var(--success);
+            box-shadow: 0 0 8px var(--success);
+            animation: pulse 1.5s infinite ease-in-out;
+        }
+
+        .status-dot.failed {
+            background-color: var(--error);
+            box-shadow: 0 0 8px var(--error);
+        }
+
+        @keyframes pulse {
+            0%, 100% { opacity: 0.6; }
+            50% { opacity: 1; transform: scale(1.2); }
+        }
+
+        .grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 20px;
+            margin-bottom: 30px;
+        }
+
+        .card {
+            background: var(--card-bg);
+            border: 1px solid var(--border-color);
+            border-radius: 16px;
+            padding: 24px;
+            transition: transform 0.3s ease, border-color 0.3s ease;
+        }
+
+        .card:hover {
+            border-color: rgba(99, 102, 241, 0.3);
+            transform: translateY(-2px);
+        }
+
+        .card-title {
+            font-size: 14px;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            color: var(--text-muted);
+            margin-bottom: 16px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .stat-row {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 12px;
+            font-size: 15px;
+        }
+
+        .stat-row:last-child {
+            margin-bottom: 0;
+        }
+
+        .stat-label {
+            color: var(--text-muted);
+        }
+
+        .stat-value {
+            font-family: 'JetBrains Mono', monospace;
+            font-weight: 700;
+        }
+
+        .stat-value.highlight {
+            color: var(--primary);
+        }
+
+        .log-section {
+            background: rgba(0, 0, 0, 0.4);
+            border: 1px solid var(--border-color);
+            border-radius: 16px;
+            padding: 20px;
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 13px;
+            max-height: 200px;
+            overflow-y: auto;
+            color: #a7f3d0;
+        }
+
+        .log-line {
+            margin-bottom: 6px;
+            line-height: 1.5;
+        }
+
+        .log-line.error { color: var(--error); }
+        .log-line.success { color: var(--success); }
+        .log-line.warning { color: var(--warning); }
+
+        /* Scrollbar styling */
+        .log-section::-webkit-scrollbar {
+            width: 6px;
+        }
+        .log-section::-webkit-scrollbar-track {
+            background: transparent;
+        }
+        .log-section::-webkit-scrollbar-thumb {
+            background: rgba(255, 255, 255, 0.1);
+            border-radius: 99px;
+        }
+
+        @media (max-width: 600px) {
+            .grid {
+                grid-template-columns: 1fr;
+            }
+        }
+    </style>
 </head>
 <body>
-    <div id="status">Initializing...</div>
+    <div class="container">
+        <header>
+            <h1>BTicino Doorbell Diagnostics</h1>
+            <div class="status-badge">
+                <div class="status-dot" id="statusDot"></div>
+                <span id="statusText">Initializing</span>
+            </div>
+        </header>
+
+        <div class="grid">
+            <!-- Netatmo Inbound Stream Stats -->
+            <div class="card">
+                <div class="card-title">
+                    <span>📥 Inbound (Netatmo)</span>
+                </div>
+                <div class="stat-row">
+                    <span class="stat-label">Audio Packets</span>
+                    <span class="stat-value" id="inAudioPackets">0</span>
+                </div>
+                <div class="stat-row">
+                    <span class="stat-label">Audio Bytes</span>
+                    <span class="stat-value" id="inAudioBytes">0 B</span>
+                </div>
+                <div class="stat-row">
+                    <span class="stat-label">Video Packets</span>
+                    <span class="stat-value" id="inVideoPackets">0</span>
+                </div>
+                <div class="stat-row">
+                    <span class="stat-label">Video Bytes</span>
+                    <span class="stat-value" id="inVideoBytes">0 B</span>
+                </div>
+                <div class="stat-row">
+                    <span class="stat-label">Decoded Frames</span>
+                    <span class="stat-value highlight" id="inVideoFrames">0</span>
+                </div>
+            </div>
+
+            <!-- MediaMTX Outbound WHIP Stats -->
+            <div class="card">
+                <div class="card-title">
+                    <span>📤 Outbound (MediaMTX)</span>
+                </div>
+                <div class="stat-row">
+                    <span class="stat-label">WHIP State</span>
+                    <span class="stat-value" id="whipState">disconnected</span>
+                </div>
+                <div class="stat-row">
+                    <span class="stat-label">Tracks Forwarded</span>
+                    <span class="stat-value" id="whipTracks">-</span>
+                </div>
+                <div class="stat-row">
+                    <span class="stat-label">Active Browser</span>
+                    <span class="stat-value" id="browserType">Detecting...</span>
+                </div>
+                <div class="stat-row">
+                    <span class="stat-label">H.264 Codec Forced</span>
+                    <span class="stat-value" id="h264Forced">no</span>
+                </div>
+            </div>
+        </div>
+
+        <div class="log-section" id="logConsole">
+            <div class="log-line">Diagnostics Console Initialized...</div>
+        </div>
+    </div>
+
+    <!-- Hidden video element for WebRTC playback -->
     <video id="remoteVideo" autoplay playsinline muted style="position:absolute; width:1px; height:1px; opacity:0.01; pointer-events:none;"></video>
     <script src="relay_script.js"></script>
 </body>

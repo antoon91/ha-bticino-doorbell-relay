@@ -3,11 +3,48 @@
  * EXACT LOGIC COPY of bticino_card.js v0.4.0
  */
 
-const statusEl = document.getElementById('status');
-const updateStatus = (msg) => {
-    console.log(msg);
-    statusEl.innerText = msg;
+const uiLog = (msg, type = 'info') => {
+    const consoleEl = document.getElementById('logConsole');
+    if (consoleEl) {
+        const line = document.createElement('div');
+        line.className = `log-line ${type}`;
+        line.innerText = `[${new Date().toLocaleTimeString()}] ${msg}`;
+        consoleEl.appendChild(line);
+        consoleEl.scrollTop = consoleEl.scrollHeight;
+    }
 };
+
+const updateStatus = (msg, type = 'info') => {
+    console.log(`[Status] ${msg}`);
+    uiLog(msg, type);
+    const statusTextEl = document.getElementById('statusText');
+    const statusDotEl = document.getElementById('statusDot');
+    if (statusTextEl) statusTextEl.innerText = msg;
+    if (statusDotEl) {
+        statusDotEl.className = 'status-dot';
+        if (type === 'success') {
+            statusDotEl.classList.add('active');
+        } else if (type === 'error') {
+            statusDotEl.classList.add('failed');
+        }
+    }
+};
+
+// Detect and display the browser type
+const detectBrowser = () => {
+    let browserName = 'Unknown';
+    const ua = navigator.userAgent.toLowerCase();
+    if (ua.includes('firefox')) {
+        browserName = 'Firefox (Gecko)';
+    } else if (ua.includes('chrome') || ua.includes('chromium')) {
+        browserName = 'Chromium (Blink)';
+    } else if (ua.includes('safari') || ua.includes('applewebkit')) {
+        browserName = 'WebKit (GStreamer)';
+    }
+    const el = document.getElementById('browserType');
+    if (el) el.innerText = browserName;
+};
+detectBrowser();
 
 async function startRelay() {
     console.log('--- startRelay() ENTERED ---');
@@ -164,7 +201,17 @@ async function startRelay() {
                             const packetsDiff = report.packetsReceived - lastStats.video.packets;
                             const framesDiff = (report.framesDecoded || 0) - lastStats.video.frames;
                             
-                            console.log(`📊 Inbound Video: received ${report.packetsReceived} packets (+${packetsDiff}), ${report.bytesReceived} bytes (+${bytesDiff}), decoded ${report.framesDecoded || 0} frames (+${framesDiff})`);
+                            const logMsg = `📊 Inbound Video: received ${report.packetsReceived} packets (+${packetsDiff}), ${report.bytesReceived} bytes (+${bytesDiff}), decoded ${report.framesDecoded || 0} frames (+${framesDiff})`;
+                            console.log(logMsg);
+                            uiLog(logMsg, 'info');
+
+                            // Update HTML elements
+                            const pktsEl = document.getElementById('inVideoPackets');
+                            const bytesEl = document.getElementById('inVideoBytes');
+                            const framesEl = document.getElementById('inVideoFrames');
+                            if (pktsEl) pktsEl.innerText = `${report.packetsReceived} (+${packetsDiff})`;
+                            if (bytesEl) bytesEl.innerText = `${(report.bytesReceived / 1024).toFixed(1)} KB (+${(bytesDiff / 1024).toFixed(1)} KB)`;
+                            if (framesEl) framesEl.innerText = `${report.framesDecoded || 0} (+${framesDiff})`;
                             
                             lastStats.video.bytes = report.bytesReceived;
                             lastStats.video.packets = report.packetsReceived;
@@ -173,7 +220,15 @@ async function startRelay() {
                             const bytesDiff = report.bytesReceived - lastStats.audio.bytes;
                             const packetsDiff = report.packetsReceived - lastStats.audio.packets;
                             
-                            console.log(`📊 Inbound Audio: received ${report.packetsReceived} packets (+${packetsDiff}), ${report.bytesReceived} bytes (+${bytesDiff})`);
+                            const logMsg = `📊 Inbound Audio: received ${report.packetsReceived} packets (+${packetsDiff}), ${report.bytesReceived} bytes (+${bytesDiff})`;
+                            console.log(logMsg);
+                            uiLog(logMsg, 'info');
+
+                            // Update HTML elements
+                            const pktsEl = document.getElementById('inAudioPackets');
+                            const bytesEl = document.getElementById('inAudioBytes');
+                            if (pktsEl) pktsEl.innerText = `${report.packetsReceived} (+${packetsDiff})`;
+                            if (bytesEl) bytesEl.innerText = `${(report.bytesReceived / 1024).toFixed(1)} KB (+${(bytesDiff / 1024).toFixed(1)} KB)`;
                             
                             lastStats.audio.bytes = report.bytesReceived;
                             lastStats.audio.packets = report.packetsReceived;
@@ -339,14 +394,38 @@ async function startRelay() {
 
     // --- MediaMTX Forwarding (WHIP) ---
     async function forwardToMediaMTX(stream) {
-        console.log('🚀 forwardToMediaMTX started with tracks:', stream.getTracks().map(t => t.kind).join(', '));
+        const logStart = `🚀 forwardToMediaMTX started with tracks: ${stream.getTracks().map(t => t.kind).join(', ')}`;
+        console.log(logStart);
+        uiLog(logStart, 'info');
         updateStatus('Pushing to MediaMTX via WHIP...');
+        
         const whipPc = new RTCPeerConnection();
         
         whipPc.onicecandidate = (e) => {
-            if (e.candidate) console.log('📦 WHIP ICE Candidate:', e.candidate.candidate);
+            if (e.candidate) {
+                const logCand = `📦 WHIP ICE Candidate: ${e.candidate.candidate}`;
+                console.log(logCand);
+                uiLog(logCand, 'info');
+            }
         };
-        whipPc.onconnectionstatechange = () => console.log('🌐 WHIP Connection State:', whipPc.connectionState);
+        whipPc.onconnectionstatechange = () => {
+            const state = whipPc.connectionState;
+            const logState = `🌐 WHIP Connection State: ${state}`;
+            console.log(logState);
+            uiLog(logState, state === 'failed' ? 'error' : state === 'connected' ? 'success' : 'warning');
+            
+            const el = document.getElementById('whipState');
+            if (el) el.innerText = state;
+            if (state === 'connected') {
+                updateStatus('Streaming Active', 'success');
+            } else if (state === 'failed' || state === 'disconnected') {
+                updateStatus('Streaming Failed/Disconnected', 'error');
+            }
+        };
+
+        const tracksText = stream.getTracks().map(t => t.kind).join(' + ');
+        const tracksEl = document.getElementById('whipTracks');
+        if (tracksEl) tracksEl.innerText = tracksText;
 
         stream.getTracks().forEach(track => {
             console.log('➕ Adding track to WHIP:', track.kind);
@@ -359,13 +438,23 @@ async function startRelay() {
             const videoTransceiver = transceivers.find(t => t.sender.track?.kind === 'video');
             if (videoTransceiver && typeof RTCRtpSender.getCapabilities === 'function') {
                 const codecs = RTCRtpSender.getCapabilities('video').codecs;
-                console.log('Available Video Codecs:', codecs.map(c => c.mimeType).join(', '));
+                const logCodecs = `Available Video Codecs: ${codecs.map(c => c.mimeType).join(', ')}`;
+                console.log(logCodecs);
+                uiLog(logCodecs, 'info');
+                
                 const h264Codecs = codecs.filter(c => c.mimeType && c.mimeType.toLowerCase() === 'video/h264');
+                const forcedEl = document.getElementById('h264Forced');
                 if (h264Codecs.length > 0) {
-                    console.log('✅ Forcing H264 for WHIP');
+                    const logForce = '✅ Forcing H264 for WHIP';
+                    console.log(logForce);
+                    uiLog(logForce, 'success');
+                    if (forcedEl) forcedEl.innerText = 'yes (forced)';
                     videoTransceiver.setCodecPreferences(h264Codecs);
                 } else {
-                    console.warn('⚠️ H264 codec NOT supported by this browser!');
+                    const logWarn = '⚠️ H264 codec NOT supported by this browser!';
+                    console.warn(logWarn);
+                    uiLog(logWarn, 'warning');
+                    if (forcedEl) forcedEl.innerText = 'no (not supported)';
                 }
             }
         } catch (codecErr) {
@@ -377,26 +466,36 @@ async function startRelay() {
         console.log('📤 WHIP Offer created. SDP:\n', offer.sdp);
 
         try {
-            console.log('📡 Sending WHIP POST to http://localhost:8889/doorbell/whip');
+            const logSend = '📡 Sending WHIP POST to http://localhost:8889/doorbell/whip';
+            console.log(logSend);
+            uiLog(logSend, 'info');
             const response = await fetch('http://localhost:8889/doorbell/whip', {
                 method: 'POST',
                 body: whipPc.localDescription.sdp,
                 headers: { 'Content-Type': 'application/sdp' }
             });
-            console.log('📥 WHIP Response status:', response.status);
+            const logResp = `📥 WHIP Response status: ${response.status}`;
+            console.log(logResp);
+            uiLog(logResp, 'info');
             if (response.ok) {
                 const answerSdp = await response.text();
                 await whipPc.setRemoteDescription({ type: 'answer', sdp: answerSdp });
-                console.log('✅ WHIP Answer set');
-                updateStatus('✅ RELAY ACTIVE: rtsp://localhost:8554/doorbell');
+                const logSet = '✅ WHIP Answer set';
+                console.log(logSet);
+                uiLog(logSet, 'success');
+                updateStatus('✅ RELAY ACTIVE: rtsp://localhost:8554/doorbell', 'success');
             } else {
                 const errText = await response.text();
-                console.error('❌ WHIP push failed:', response.statusText, errText);
-                updateStatus('WHIP push failed: ' + response.statusText);
+                const logFail = `❌ WHIP push failed: ${response.statusText} ${errText}`;
+                console.error(logFail);
+                uiLog(logFail, 'error');
+                updateStatus('WHIP push failed: ' + response.statusText, 'error');
             }
         } catch (err) {
-            console.error('❌ WHIP Fetch Error:', err);
-            updateStatus('WHIP Error: ' + err.message);
+            const logErr = `❌ WHIP Fetch Error: ${err.message}`;
+            console.error(logErr);
+            uiLog(logErr, 'error');
+            updateStatus('WHIP Error: ' + err.message, 'error');
         }
     }
 }
