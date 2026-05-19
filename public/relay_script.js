@@ -138,12 +138,52 @@ async function startRelay() {
             return;
         }
 
-        pc = new RTCPeerConnection({
+         pc = new RTCPeerConnection({
             iceServers: config.ice_servers,
             rtcpMuxPolicy: 'require',
             bundlePolicy: 'max-bundle',
             iceTransportPolicy: 'all'
         });
+
+        // Periodically check WebRTC inbound stream stats to monitor traffic and frames
+        let lastStats = {
+            video: { bytes: 0, packets: 0, frames: 0 },
+            audio: { bytes: 0, packets: 0 }
+        };
+        const statsInterval = setInterval(async () => {
+            if (!pc || pc.signalingState === 'closed') {
+                clearInterval(statsInterval);
+                return;
+            }
+            try {
+                const stats = await pc.getStats();
+                stats.forEach(report => {
+                    if (report.type === 'inbound-rtp') {
+                        if (report.kind === 'video') {
+                            const bytesDiff = report.bytesReceived - lastStats.video.bytes;
+                            const packetsDiff = report.packetsReceived - lastStats.video.packets;
+                            const framesDiff = (report.framesDecoded || 0) - lastStats.video.frames;
+                            
+                            console.log(`📊 Inbound Video: received ${report.packetsReceived} packets (+${packetsDiff}), ${report.bytesReceived} bytes (+${bytesDiff}), decoded ${report.framesDecoded || 0} frames (+${framesDiff})`);
+                            
+                            lastStats.video.bytes = report.bytesReceived;
+                            lastStats.video.packets = report.packetsReceived;
+                            lastStats.video.frames = report.framesDecoded || 0;
+                        } else if (report.kind === 'audio') {
+                            const bytesDiff = report.bytesReceived - lastStats.audio.bytes;
+                            const packetsDiff = report.packetsReceived - lastStats.audio.packets;
+                            
+                            console.log(`📊 Inbound Audio: received ${report.packetsReceived} packets (+${packetsDiff}), ${report.bytesReceived} bytes (+${bytesDiff})`);
+                            
+                            lastStats.audio.bytes = report.bytesReceived;
+                            lastStats.audio.packets = report.packetsReceived;
+                        }
+                    }
+                });
+            } catch (err) {
+                console.warn('Failed to retrieve WebRTC stats:', err.message);
+            }
+        }, 5000);
 
         localStream.getAudioTracks().forEach(track => {
             pc.addTrack(track, localStream);
@@ -151,15 +191,14 @@ async function startRelay() {
         pc.addTransceiver('video', { direction: 'recvonly' });
 
         let forwardingStarted = false;
+        let arrivedTracks = [];
+        let forwardTimeout = null;
+
         pc.ontrack = (e) => {
             const track = e.track;
             console.log(`🎥 TRACK ARRIVED: ${track.kind} (${track.label})`);
+            arrivedTracks.push(track);
             
-            // Log track stats periodically
-            setInterval(() => {
-                console.log(`📊 Track [${track.kind}] readyState: ${track.readyState}, enabled: ${track.enabled}, muted: ${track.muted}`);
-            }, 5000);
-
             const stream = e.streams[0] || new MediaStream([track]);
             const videoEl = document.getElementById('remoteVideo');
             if (videoEl && videoEl.srcObject !== stream) {
@@ -167,9 +206,29 @@ async function startRelay() {
                 videoEl.srcObject = stream;
             }
 
-            if (!forwardingStarted) {
-                forwardingStarted = true;
-                forwardToMediaMTX(stream);
+            // Clear any active timeout
+            if (forwardTimeout) clearTimeout(forwardTimeout);
+
+            const hasAudio = arrivedTracks.some(t => t.kind === 'audio');
+            const hasVideo = arrivedTracks.some(t => t.kind === 'video');
+
+            if (hasAudio && hasVideo) {
+                if (!forwardingStarted) {
+                    forwardingStarted = true;
+                    console.log('✅ Both audio and video tracks arrived. Starting WHIP forwarding...');
+                    const combinedStream = new MediaStream(arrivedTracks);
+                    forwardToMediaMTX(combinedStream);
+                }
+            } else {
+                // Wait up to 1 second for the other track to arrive
+                forwardTimeout = setTimeout(() => {
+                    if (!forwardingStarted) {
+                        forwardingStarted = true;
+                        console.log(`⚠️ Only one track arrived (${arrivedTracks[0].kind}). Starting WHIP forwarding anyway...`);
+                        const combinedStream = new MediaStream(arrivedTracks);
+                        forwardToMediaMTX(combinedStream);
+                    }
+                }, 1000);
             }
         };
 
@@ -268,7 +327,7 @@ async function startRelay() {
             if (videoTransceiver && typeof RTCRtpSender.getCapabilities === 'function') {
                 const codecs = RTCRtpSender.getCapabilities('video').codecs;
                 console.log('Available Video Codecs:', codecs.map(c => c.mimeType).join(', '));
-                const h264Codecs = codecs.filter(c => c.mimeType === 'video/H264');
+                const h264Codecs = codecs.filter(c => c.mimeType && c.mimeType.toLowerCase() === 'video/h264');
                 if (h264Codecs.length > 0) {
                     console.log('✅ Forcing H264 for WHIP');
                     videoTransceiver.setCodecPreferences(h264Codecs);
