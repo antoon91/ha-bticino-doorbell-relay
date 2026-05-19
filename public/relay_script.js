@@ -256,27 +256,29 @@ async function startRelay() {
         };
         whipPc.onconnectionstatechange = () => console.log('🌐 WHIP Connection State:', whipPc.connectionState);
 
-        // Force H264 for WHIP
-        whipPc.addTransceiver('video', { direction: 'sendonly' });
-        const transceivers = whipPc.getTransceivers();
-        const videoTransceiver = transceivers.find(t => t.receiver.track.kind === 'video' || t.sender.track?.kind === 'video');
-        if (videoTransceiver && RTCRtpSender.getCapabilities) {
-            const codecs = RTCRtpSender.getCapabilities('video').codecs;
-            const h264Codecs = codecs.filter(c => c.mimeType === 'video/H264');
-            if (h264Codecs.length > 0) {
-                console.log('✅ Forcing H264 for WHIP');
-                videoTransceiver.setCodecPreferences(h264Codecs);
-            }
-        }
-
         stream.getTracks().forEach(track => {
             console.log('➕ Adding track to WHIP:', track.kind);
             whipPc.addTrack(track, stream);
         });
 
+        // Force H264 for WHIP on the video transceiver
+        const transceivers = whipPc.getTransceivers();
+        const videoTransceiver = transceivers.find(t => t.sender.track?.kind === 'video');
+        if (videoTransceiver && RTCRtpSender.getCapabilities) {
+            const codecs = RTCRtpSender.getCapabilities('video').codecs;
+            console.log('Available Video Codecs:', codecs.map(c => c.mimeType).join(', '));
+            const h264Codecs = codecs.filter(c => c.mimeType === 'video/H264');
+            if (h264Codecs.length > 0) {
+                console.log('✅ Forcing H264 for WHIP');
+                videoTransceiver.setCodecPreferences(h264Codecs);
+            } else {
+                console.warn('⚠️ H264 codec NOT supported by this browser!');
+            }
+        }
+
         const offer = await whipPc.createOffer();
         await whipPc.setLocalDescription(offer);
-        console.log('📤 WHIP Offer created');
+        console.log('📤 WHIP Offer created. SDP:\n', offer.sdp);
 
         try {
             console.log('📡 Sending WHIP POST to http://localhost:8889/doorbell/whip');

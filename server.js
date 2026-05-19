@@ -81,18 +81,38 @@ app.post('/start', async (req, res) => {
 
     try {
         if (!browser) {
-            browser = await chromium.launch({
-                args: [
-                    '--use-fake-ui-for-media-stream',
-                    '--use-fake-device-for-media-stream',
-                    '--no-sandbox',
-                    '--disable-setuid-sandbox',
-                    '--autoplay-policy=no-user-gesture-required',
-                    '--disable-background-timer-throttling',
-                    '--disable-backgrounding-occluded-windows',
-                    '--disable-renderer-backgrounding'
-                ]
-            });
+            try {
+                // Try launching official Google Chrome (highly recommended for H264 support in Docker)
+                browser = await chromium.launch({
+                    channel: 'chrome',
+                    args: [
+                        '--use-fake-ui-for-media-stream',
+                        '--use-fake-device-for-media-stream',
+                        '--no-sandbox',
+                        '--disable-setuid-sandbox',
+                        '--autoplay-policy=no-user-gesture-required',
+                        '--disable-background-timer-throttling',
+                        '--disable-backgrounding-occluded-windows',
+                        '--disable-renderer-backgrounding'
+                    ]
+                });
+                logServerEvent('Launched Google Chrome channel successfully', 'info');
+            } catch (err) {
+                logServerEvent(`Google Chrome channel launch failed (${err.message}). Falling back to default Chromium...`, 'warning');
+                browser = await chromium.launch({
+                    args: [
+                        '--use-fake-ui-for-media-stream',
+                        '--use-fake-device-for-media-stream',
+                        '--no-sandbox',
+                        '--disable-setuid-sandbox',
+                        '--autoplay-policy=no-user-gesture-required',
+                        '--disable-background-timer-throttling',
+                        '--disable-backgrounding-occluded-windows',
+                        '--disable-renderer-backgrounding'
+                    ]
+                });
+                logServerEvent('Launched fallback Chromium successfully', 'info');
+            }
             context = await browser.newContext();
         }
 
