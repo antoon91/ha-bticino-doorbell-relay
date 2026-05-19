@@ -161,6 +161,12 @@ async function startRelay() {
             }, 5000);
 
             const stream = e.streams[0] || new MediaStream([track]);
+            const videoEl = document.getElementById('remoteVideo');
+            if (videoEl && videoEl.srcObject !== stream) {
+                console.log('📺 Binding remote WebRTC stream to video element');
+                videoEl.srcObject = stream;
+            }
+
             if (!forwardingStarted) {
                 forwardingStarted = true;
                 forwardToMediaMTX(stream);

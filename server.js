@@ -74,7 +74,11 @@ app.post('/start', async (req, res) => {
                     '--use-fake-ui-for-media-stream',
                     '--use-fake-device-for-media-stream',
                     '--no-sandbox',
-                    '--disable-setuid-sandbox'
+                    '--disable-setuid-sandbox',
+                    '--autoplay-policy=no-user-gesture-required',
+                    '--disable-background-timer-throttling',
+                    '--disable-backgrounding-occluded-windows',
+                    '--disable-renderer-backgrounding'
                 ]
             });
             context = await browser.newContext();
