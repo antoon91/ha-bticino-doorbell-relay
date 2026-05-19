@@ -135,6 +135,21 @@ app.post('/stop', async (req, res) => {
     }
 });
 
+// Proxy endpoint to fetch configuration from FastAPI server to avoid CORS issues in browsers
+app.get('/fetch-config', async (req, res) => {
+    try {
+        const response = await fetch('http://localhost:8000/config');
+        if (!response.ok) {
+            throw new Error(`FastAPI server returned status ${response.status}`);
+        }
+        const data = await response.json();
+        res.json(data);
+    } catch (error) {
+        console.error('Error fetching config from FastAPI:', error.message);
+        res.status(500).json({ error: error.message });
+    }
+});
+
 app.listen(port, () => {
     console.log(`Relay control API listening at http://localhost:${port}`);
 });
