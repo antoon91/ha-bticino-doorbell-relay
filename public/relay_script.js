@@ -228,7 +228,7 @@ async function startRelay() {
 
     ws.onmessage = async (msg) => {
         const data = JSON.parse(msg.data);
-        console.log('📥 Netatmo RAW:', data);
+        console.log('📥 Netatmo RAW: ' + JSON.stringify(data));
 
         if (data.status === 'ok') {
             if (data.session_id) sessionId = data.session_id;
