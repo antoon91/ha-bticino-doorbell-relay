@@ -8,7 +8,8 @@ ENV GST_PLUGIN_FEATURE_RANK=v4l2h264enc:0,omxh264enc:0 \
 
 # Install MediaMTX, Python 3, FFmpeg, and Python websockets package
 WORKDIR /app
-RUN apt-get update && apt-get install -y wget curl python3 python3-websockets ffmpeg && \
+RUN apt-get update && apt-get install -y wget curl python3 python3-pip ffmpeg && \
+    pip3 install websockets && \
     ARCH=$(uname -m) && \
     if [ "$ARCH" = "x86_64" ]; then \
         MEDIAMTX_ARCH="amd64"; \
