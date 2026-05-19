@@ -1,5 +1,5 @@
 const express = require('express');
-const { chromium } = require('playwright');
+const { chromium, firefox } = require('playwright');
 const path = require('path');
 const app = express();
 const port = 3000;
@@ -82,7 +82,7 @@ app.post('/start', async (req, res) => {
     try {
         if (!browser) {
             try {
-                // Try launching official Google Chrome (highly recommended for H264 support in Docker)
+                // Try launching official Google Chrome (highly recommended for H264 support in Docker/macOS x86_64)
                 browser = await chromium.launch({
                     channel: 'chrome',
                     args: [
@@ -98,20 +98,34 @@ app.post('/start', async (req, res) => {
                 });
                 logServerEvent('Launched Google Chrome channel successfully', 'info');
             } catch (err) {
-                logServerEvent(`Google Chrome channel launch failed (${err.message}). Falling back to default Chromium...`, 'warning');
-                browser = await chromium.launch({
-                    args: [
-                        '--use-fake-ui-for-media-stream',
-                        '--use-fake-device-for-media-stream',
-                        '--no-sandbox',
-                        '--disable-setuid-sandbox',
-                        '--autoplay-policy=no-user-gesture-required',
-                        '--disable-background-timer-throttling',
-                        '--disable-backgrounding-occluded-windows',
-                        '--disable-renderer-backgrounding'
-                    ]
-                });
-                logServerEvent('Launched fallback Chromium successfully', 'info');
+                logServerEvent(`Google Chrome channel launch failed: ${err.message}. Trying Firefox (H264 support on Linux Arm64)...`, 'warning');
+                try {
+                    // Try Firefox which has pre-compiled OpenH264 support on ARM64 Linux
+                    browser = await firefox.launch({
+                        firefoxUserPrefs: {
+                            'media.navigator.streams.fake': true,
+                            'media.navigator.permission.disabled': true,
+                            'media.autoplay.default': 0, // Allow autoplay
+                            'dom.webnotifications.enabled': false
+                        }
+                    });
+                    logServerEvent('Launched Firefox successfully with H.264 support', 'info');
+                } catch (firefoxErr) {
+                    logServerEvent(`Firefox launch failed: ${firefoxErr.message}. Falling back to default Chromium...`, 'warning');
+                    browser = await chromium.launch({
+                        args: [
+                            '--use-fake-ui-for-media-stream',
+                            '--use-fake-device-for-media-stream',
+                            '--no-sandbox',
+                            '--disable-setuid-sandbox',
+                            '--autoplay-policy=no-user-gesture-required',
+                            '--disable-background-timer-throttling',
+                            '--disable-backgrounding-occluded-windows',
+                            '--disable-renderer-backgrounding'
+                        ]
+                    });
+                    logServerEvent('Launched fallback Chromium successfully', 'info');
+                }
             }
             context = await browser.newContext();
         }

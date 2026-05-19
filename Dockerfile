@@ -19,7 +19,6 @@ RUN apt-get update && apt-get install -y wget curl && \
 # Copy project files
 COPY package.json .
 RUN npm install
-RUN npx playwright install chrome
 COPY . .
 
 # Expose ports
