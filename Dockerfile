@@ -6,9 +6,9 @@ FROM mcr.microsoft.com/playwright:v1.60.0-jammy
 ENV GST_PLUGIN_FEATURE_RANK=v4l2h264enc:0,omxh264enc:0 \
     GST_DEBUG="*:2"
 
-# Install MediaMTX and GStreamer H.264 encoders for WebKit
+# Install MediaMTX, Python 3, FFmpeg, and Python websockets package
 WORKDIR /app
-RUN apt-get update && apt-get install -y wget curl gstreamer1.0-plugins-base gstreamer1.0-plugins-good gstreamer1.0-plugins-bad gstreamer1.0-plugins-ugly gstreamer1.0-libav && \
+RUN apt-get update && apt-get install -y wget curl python3 python3-websockets ffmpeg && \
     ARCH=$(uname -m) && \
     if [ "$ARCH" = "x86_64" ]; then \
         MEDIAMTX_ARCH="amd64"; \
@@ -31,7 +31,8 @@ COPY . .
 # 8554: RTSP
 # 8889: WebRTC / WHIP
 # 9997: MediaMTX API
-EXPOSE 3000 8554 8889 9997
+# 9999: Python WebSocket Streamer
+EXPOSE 3000 8554 8889 9997 9999
 
 # Start script to run both MediaMTX and the Node server
 RUN echo "#!/bin/bash\n./mediamtx mediamtx.yml & npm start" > start.sh

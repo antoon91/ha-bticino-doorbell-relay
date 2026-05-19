@@ -254,6 +254,46 @@ app.get('/logs', (req, res) => {
     res.json(serverLogs);
 });
 
+const { spawn } = require('child_process');
+let pythonStreamer = null;
+
+function startPythonStreamer() {
+    logServerEvent('Starting Python WebRTC streamer daemon...', 'info');
+    pythonStreamer = spawn('python3', [path.join(__dirname, 'relay_streamer.py')], {
+        stdio: ['ignore', 'pipe', 'pipe']
+    });
+
+    pythonStreamer.stdout.on('data', (data) => {
+        console.log(`[Python Streamer] ${data.toString().trim()}`);
+    });
+
+    pythonStreamer.stderr.on('data', (data) => {
+        console.error(`[Python Streamer ERROR] ${data.toString().trim()}`);
+    });
+
+    pythonStreamer.on('close', (code) => {
+        logServerEvent(`Python WebRTC streamer daemon exited with code ${code}`, 'warning');
+    });
+}
+
+const cleanup = () => {
+    if (pythonStreamer) {
+        logServerEvent('Terminating Python WebRTC streamer daemon...', 'info');
+        pythonStreamer.kill('SIGTERM');
+        pythonStreamer = null;
+    }
+};
+process.on('exit', cleanup);
+process.on('SIGINT', () => {
+    cleanup();
+    process.exit(0);
+});
+process.on('SIGTERM', () => {
+    cleanup();
+    process.exit(0);
+});
+
 app.listen(port, () => {
     console.log(`Relay control API listening at http://localhost:${port}`);
+    startPythonStreamer();
 });

@@ -59,6 +59,7 @@ async function startRelay() {
     
     let pc = null;
     let ws = null;
+    let pyWs = null;
     let sessionId = null;
     let tagId = null;
     let candidateQueue = [];
@@ -190,6 +191,8 @@ async function startRelay() {
         }
     }
 
+    // All WHIP logic commented out as we are using insertable streams over WebSockets to Python FFmpeg
+    /*
     const initTracks = [];
     if (placeholderAudioTrack) initTracks.push(placeholderAudioTrack);
     if (placeholderVideoTrack) initTracks.push(placeholderVideoTrack);
@@ -203,6 +206,7 @@ async function startRelay() {
     console.log(`Starting WHIP with ${initTracks.length} tracks.`);
     const initStream = new MediaStream(initTracks);
     forwardToMediaMTX(initStream);
+    */
 
     // --- Signaling Connection (Simplified version of _connectToNetatmo) ---
     ws = new WebSocket('wss://app-ws.netatmo.net/appws/');
@@ -299,16 +303,29 @@ async function startRelay() {
     async function _startCall() {
         updateStatus('Starting call sequence...');
         
+        // Connect to Python WebSocket streamer
+        pyWs = new WebSocket('ws://localhost:9999');
+        pyWs.binaryType = 'arraybuffer';
+        pyWs.onopen = () => {
+            console.log('🔌 Connected to Python WebSocket streamer');
+            uiLog('🔌 Connected to Python WebSocket streamer', 'success');
+        };
+        pyWs.onerror = (e) => {
+            console.error('❌ Python WebSocket error:', e);
+            uiLog('❌ Python WebSocket error', 'error');
+        };
+        
         if (!localStream) {
             console.error('Local stream was not initialized!');
             return;
         }
 
+         // Enable insertable streams
          pc = new RTCPeerConnection({
             iceServers: config.ice_servers,
             rtcpMuxPolicy: 'require',
             bundlePolicy: 'max-bundle',
-            iceTransportPolicy: 'all'
+            iceTransportPolicy: 'all', encodedInsertableStreams: true
         });
 
         pc.oniceconnectionstatechange = () => {
@@ -476,25 +493,48 @@ async function startRelay() {
             console.log(`🎥 TRACK ARRIVED: ${track.kind} (${track.label})`);
             arrivedTracks.push(track);
             
+            if (track.kind === 'video') {
+                const receiver = e.receiver;
+                if (receiver.createEncodedStreams) {
+                    console.log('✅ WebRTC Insertable Streams supported by receiver');
+                    uiLog('✅ WebRTC Insertable Streams supported by receiver', 'success');
+                    const streams = receiver.createEncodedStreams();
+                    const readable = streams.readable;
+                    const writable = streams.writable;
+                    
+                    const reader = readable.getReader();
+                    const writer = writable.getWriter();
+                    
+                    async function processEncodedFrames() {
+                        try {
+                            while (true) {
+                                const { value, done } = await reader.read();
+                                if (done) break;
+                                
+                                // Send raw Annex B H.264 frame to Python over WebSocket
+                                if (pyWs && pyWs.readyState === WebSocket.OPEN) {
+                                    pyWs.send(value.data);
+                                }
+                                
+                                // Write the frame back so the browser pipeline remains happy
+                                await writer.write(value);
+                            }
+                        } catch (err) {
+                            console.error('Error in encoded frames processor:', err);
+                        }
+                    }
+                    processEncodedFrames();
+                } else {
+                    console.error('❌ Browser does not support Insertable Streams (createEncodedStreams)!');
+                    uiLog('❌ Browser does not support Insertable Streams!', 'error');
+                }
+            }
+
             const stream = e.streams[0] || new MediaStream([track]);
             const videoEl = document.getElementById('remoteVideo');
             if (videoEl && videoEl.srcObject !== stream) {
                 console.log('📺 Binding remote WebRTC stream to video element');
                 videoEl.srcObject = stream;
-            }
-
-            if (trackTimeout) clearTimeout(trackTimeout);
-
-            const hasAudio = arrivedTracks.some(t => t.kind === 'audio');
-            const hasVideo = arrivedTracks.some(t => t.kind === 'video');
-
-            if (hasAudio && hasVideo) {
-                startMediaFlowCheck();
-            } else {
-                // Wait up to 1.5 seconds for the other track to arrive before checking packets
-                trackTimeout = setTimeout(() => {
-                    startMediaFlowCheck();
-                }, 1500);
             }
         };
 
