@@ -521,17 +521,22 @@ async function startRelay() {
     }
 
     function _sanitizeSDP(sdp) {
-        // ... (same as before)
-        const lines = sdp.split('\r\n');
+        console.log('Original SDP to sanitize:\n', sdp);
+        const lines = sdp.split(/\r?\n/);
         let ufrag, pwd, fingerprint;
 
-        for (const line of lines) {
+        for (let line of lines) {
+            line = line.trim();
             if (line.startsWith('a=ice-ufrag:')) ufrag = line.split(':')[1];
             if (line.startsWith('a=ice-pwd:')) pwd = line.split(':')[1];
             if (line.startsWith('a=fingerprint:sha-256 ')) fingerprint = line.split(' ')[1];
         }
 
-        return [
+        const logParsed = `Parsed SDP fields: ufrag=${ufrag}, pwd=${pwd}, fingerprint=${fingerprint}`;
+        console.log(logParsed);
+        uiLog(logParsed, 'info');
+
+        const sanitized = [
             'v=0',
             'o=- 1234567890 2 IN IP4 127.0.0.1',
             's=-',
@@ -568,6 +573,9 @@ async function startRelay() {
             'a=setup:actpass',
             ''
         ].join('\r\n');
+
+        console.log('Sanitized SDP output:\n', sanitized);
+        return sanitized;
     }
 
     // --- MediaMTX Forwarding (WHIP) ---
