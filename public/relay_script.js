@@ -64,6 +64,7 @@ async function startRelay() {
     let candidateQueue = [];
     let remoteDescriptionSet = false;
     let callStarted = false;
+    let connectionStartTime = null;
 
     // --- Signaling Connection (Simplified version of _connectToNetatmo) ---
     ws = new WebSocket('wss://app-ws.netatmo.net/appws/');
@@ -182,6 +183,19 @@ async function startRelay() {
             iceTransportPolicy: 'all'
         });
 
+        pc.oniceconnectionstatechange = () => {
+            const state = pc.iceConnectionState;
+            const logMsg = `🔌 Netatmo ICE Connection State: ${state}`;
+            console.log(logMsg);
+            uiLog(logMsg, state === 'failed' ? 'error' : state === 'connected' ? 'success' : 'info');
+            if (state === 'connected' || state === 'completed') {
+                if (!connectionStartTime) {
+                    connectionStartTime = Date.now();
+                    uiLog('🔌 Netatmo connection established! Fallback timer started.', 'success');
+                }
+            }
+        };
+
         // Periodically check WebRTC inbound stream stats to monitor traffic and frames
         let lastStats = {
             video: { bytes: 0, packets: 0, frames: 0 },
@@ -252,7 +266,6 @@ async function startRelay() {
         function startMediaFlowCheck() {
             if (forwardingStarted) return;
             console.log('⏳ Waiting for media packets & decoded frames from Netatmo...');
-            const startTime = Date.now();
             const checkInterval = setInterval(async () => {
                 try {
                     const stats = await pc.getStats();
@@ -273,12 +286,15 @@ async function startRelay() {
                     
                     console.log(`⏳ Media flow check: Audio packets: ${audioPackets}, Video packets: ${videoPackets}, Decoded frames: ${videoFramesDecoded}`);
                     
-                    const elapsed = Date.now() - startTime;
+                    let elapsed = 0;
+                    if (connectionStartTime) {
+                        elapsed = Date.now() - connectionStartTime;
+                    }
                     
                     // Start forwarding if:
                     // 1. Audio packets are flowing AND video has decoded at least one frame (so video is active and structured)
-                    // 2. Or if 8 seconds elapsed, start with whatever packets are flowing (fallback)
-                    if ((audioPackets > 0 && videoFramesDecoded > 0) || (elapsed > 8000 && (audioPackets > 0 || videoPackets > 0))) {
+                    // 2. Or if connection is established and 8 seconds elapsed, start with whatever packets are flowing (fallback)
+                    if ((audioPackets > 0 && videoFramesDecoded > 0) || (connectionStartTime && elapsed > 8000 && (audioPackets > 0 || videoPackets > 0))) {
                         clearInterval(checkInterval);
                         if (!forwardingStarted) {
                             forwardingStarted = true;
