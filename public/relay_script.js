@@ -65,6 +65,99 @@ async function startRelay() {
     let remoteDescriptionSet = false;
     let callStarted = false;
     let connectionStartTime = null;
+    let whipPc = null;
+    let videoSender = null;
+    let audioSender = null;
+    let canvasInterval = null;
+    let localStream = null;
+    // Setup local audio oscillator
+    try {
+        const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        const osc = audioCtx.createOscillator();
+        osc.frequency.value = 440;
+        const dest = audioCtx.createMediaStreamDestination();
+        osc.connect(dest);
+        osc.start();
+        localStream = dest.stream;
+    } catch (err) {
+        console.error('Local stream setup failed:', err);
+        updateStatus('Error: Local stream setup failed');
+        return;
+    }
+
+    // Start placeholder stream drawing (forces the H264 encoder to output valid stream right away)
+    function startPlaceholderDrawing() {
+        const canvas = document.createElement('canvas');
+        canvas.width = 640;
+        canvas.height = 480;
+        const ctx = canvas.getContext('2d');
+        let angle = 0;
+        const startTime = Date.now();
+        
+        canvasInterval = setInterval(() => {
+            // Background
+            ctx.fillStyle = '#0a0b10';
+            ctx.fillRect(0, 0, 640, 480);
+            
+            // Grid effect
+            ctx.strokeStyle = '#1e293b';
+            ctx.lineWidth = 1;
+            for (let i = 0; i < 640; i += 40) {
+                ctx.beginPath();
+                ctx.moveTo(i, 0);
+                ctx.lineTo(i, 480);
+                ctx.stroke();
+            }
+            for (let j = 0; j < 480; j += 40) {
+                ctx.beginPath();
+                ctx.moveTo(0, j);
+                ctx.lineTo(640, j);
+                ctx.stroke();
+            }
+            
+            // Glowing pulsing accent circle
+            const pulse = Math.abs(Math.sin((Date.now() - startTime) / 1000));
+            ctx.strokeStyle = `rgba(99, 102, 241, ${0.15 + pulse * 0.35})`;
+            ctx.lineWidth = 3;
+            ctx.beginPath();
+            ctx.arc(320, 240, 70, 0, Math.PI * 2);
+            ctx.stroke();
+            
+            // Outer spinner
+            ctx.strokeStyle = '#a855f7';
+            ctx.lineWidth = 5;
+            ctx.beginPath();
+            ctx.arc(320, 240, 50, angle, angle + Math.PI * 0.4);
+            ctx.stroke();
+            angle += 0.1;
+            
+            // Title text
+            ctx.fillStyle = '#f3f4f6';
+            ctx.font = 'bold 22px system-ui, -apple-system, sans-serif';
+            ctx.textAlign = 'center';
+            ctx.fillText('BTicino Doorbell Relay', 320, 130);
+            
+            ctx.fillStyle = '#9ca3af';
+            ctx.font = '15px system-ui, -apple-system, sans-serif';
+            ctx.fillText('Establishing Netatmo call...', 320, 330);
+            
+            // Elapsed time
+            const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
+            ctx.fillStyle = '#6366f1';
+            ctx.font = '13px monospace';
+            ctx.fillText(`Negotiation time: ${elapsed}s`, 320, 365);
+        }, 100); // 10 fps
+        
+        return canvas.captureStream(10);
+    }
+
+    const placeholderStream = startPlaceholderDrawing();
+    const placeholderVideoTrack = placeholderStream.getVideoTracks()[0];
+    const placeholderAudioTrack = localStream.getAudioTracks()[0];
+    
+    // Start pushing placeholder stream to MediaMTX immediately
+    const initStream = new MediaStream([placeholderAudioTrack, placeholderVideoTrack]);
+    forwardToMediaMTX(initStream);
 
     // --- Signaling Connection (Simplified version of _connectToNetatmo) ---
     ws = new WebSocket('wss://app-ws.netatmo.net/appws/');
@@ -161,18 +254,8 @@ async function startRelay() {
     async function _startCall() {
         updateStatus('Starting call sequence...');
         
-        // Match bticino_card.js local stream setup (falling back to oscillator for headless)
-        let localStream;
-        try {
-            const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-            const osc = audioCtx.createOscillator();
-            osc.frequency.value = 440;
-            const dest = audioCtx.createMediaStreamDestination();
-            osc.connect(dest);
-            osc.start();
-            localStream = dest.stream;
-        } catch (err) {
-            console.error('Local stream setup failed:', err);
+        if (!localStream) {
+            console.error('Local stream was not initialized!');
             return;
         }
 
@@ -298,9 +381,43 @@ async function startRelay() {
                         clearInterval(checkInterval);
                         if (!forwardingStarted) {
                             forwardingStarted = true;
-                            console.log('✅ Media packets flowing and decoded! Starting WHIP forwarding...');
-                            const combinedStream = new MediaStream(arrivedTracks);
-                            forwardToMediaMTX(combinedStream);
+                            const logReady = '✅ Real media ready! Replacing tracks on WHIP sender...';
+                            console.log(logReady);
+                            uiLog(logReady, 'success');
+
+                            const netatmoVideoTrack = arrivedTracks.find(t => t.kind === 'video');
+                            const netatmoAudioTrack = arrivedTracks.find(t => t.kind === 'audio');
+
+                            if (videoSender && netatmoVideoTrack) {
+                                console.log('🔄 Swapping in real Video track');
+                                videoSender.replaceTrack(netatmoVideoTrack)
+                                    .then(() => {
+                                        console.log('✅ Video track swapped successfully!');
+                                        uiLog('✅ Video stream swapped to real doorbell camera!', 'success');
+                                    })
+                                    .catch(err => {
+                                        console.error('❌ Video track swap failed:', err);
+                                        uiLog(`❌ Video track swap failed: ${err.message}`, 'error');
+                                    });
+                            }
+                            if (audioSender && netatmoAudioTrack) {
+                                console.log('🔄 Swapping in real Audio track');
+                                audioSender.replaceTrack(netatmoAudioTrack)
+                                    .then(() => {
+                                        console.log('✅ Audio track swapped successfully!');
+                                        uiLog('✅ Audio stream swapped to real doorbell microphone!', 'success');
+                                    })
+                                    .catch(err => {
+                                        console.error('❌ Audio track swap failed:', err);
+                                        uiLog(`❌ Audio track swap failed: ${err.message}`, 'error');
+                                    });
+                            }
+                            
+                            // Stop placeholder canvas drawing to save resources
+                            if (canvasInterval) {
+                                clearInterval(canvasInterval);
+                                canvasInterval = null;
+                            }
                         }
                     }
                 } catch (err) {
@@ -415,7 +532,7 @@ async function startRelay() {
         uiLog(logStart, 'info');
         updateStatus('Pushing to MediaMTX via WHIP...');
         
-        const whipPc = new RTCPeerConnection();
+        whipPc = new RTCPeerConnection();
         
         whipPc.onicecandidate = (e) => {
             if (e.candidate) {
@@ -445,7 +562,9 @@ async function startRelay() {
 
         stream.getTracks().forEach(track => {
             console.log('➕ Adding track to WHIP:', track.kind);
-            whipPc.addTrack(track, stream);
+            const sender = whipPc.addTrack(track, stream);
+            if (track.kind === 'video') videoSender = sender;
+            if (track.kind === 'audio') audioSender = sender;
         });
 
         // Force H264 for WHIP on the video transceiver
