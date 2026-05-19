@@ -196,13 +196,14 @@ async function startRelay() {
 
         function startMediaFlowCheck() {
             if (forwardingStarted) return;
-            console.log('⏳ Waiting for media packets to flow from Netatmo...');
+            console.log('⏳ Waiting for media packets & decoded frames from Netatmo...');
             const startTime = Date.now();
             const checkInterval = setInterval(async () => {
                 try {
                     const stats = await pc.getStats();
                     let audioPackets = 0;
                     let videoPackets = 0;
+                    let videoFramesDecoded = 0;
                     
                     stats.forEach(report => {
                         if (report.type === 'inbound-rtp') {
@@ -210,22 +211,23 @@ async function startRelay() {
                                 audioPackets = report.packetsReceived || 0;
                             } else if (report.kind === 'video') {
                                 videoPackets = report.packetsReceived || 0;
+                                videoFramesDecoded = report.framesDecoded || 0;
                             }
                         }
                     });
                     
-                    console.log(`⏳ Media flow check: Audio packets: ${audioPackets}, Video packets: ${videoPackets}`);
+                    console.log(`⏳ Media flow check: Audio packets: ${audioPackets}, Video packets: ${videoPackets}, Decoded frames: ${videoFramesDecoded}`);
                     
                     const elapsed = Date.now() - startTime;
                     
                     // Start forwarding if:
-                    // 1. Packets are actively flowing on both tracks
-                    // 2. Or if 6 seconds elapsed, start with whatever packets are flowing (at least one)
-                    if ((audioPackets > 0 && videoPackets > 0) || (elapsed > 6000 && (audioPackets > 0 || videoPackets > 0))) {
+                    // 1. Audio packets are flowing AND video has decoded at least one frame (so video is active and structured)
+                    // 2. Or if 8 seconds elapsed, start with whatever packets are flowing (fallback)
+                    if ((audioPackets > 0 && videoFramesDecoded > 0) || (elapsed > 8000 && (audioPackets > 0 || videoPackets > 0))) {
                         clearInterval(checkInterval);
                         if (!forwardingStarted) {
                             forwardingStarted = true;
-                            console.log('✅ Media packets flowing! Starting WHIP forwarding...');
+                            console.log('✅ Media packets flowing and decoded! Starting WHIP forwarding...');
                             const combinedStream = new MediaStream(arrivedTracks);
                             forwardToMediaMTX(combinedStream);
                         }
