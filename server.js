@@ -82,9 +82,8 @@ app.post('/start', async (req, res) => {
     try {
         if (!browser) {
             try {
-                // Try launching official Google Chrome (highly recommended for H264 support in Docker/macOS x86_64)
+                // Try launching default Playwright-packaged Chromium first (highly stable, native H264/VP8/VP9 on Linux ARM64)
                 browser = await chromium.launch({
-                    channel: 'chrome',
                     args: [
                         '--use-fake-ui-for-media-stream',
                         '--use-fake-device-for-media-stream',
@@ -96,40 +95,45 @@ app.post('/start', async (req, res) => {
                         '--disable-renderer-backgrounding'
                     ]
                 });
-                logServerEvent('Launched Google Chrome channel successfully', 'info');
+                logServerEvent('Launched default Chromium successfully', 'info');
             } catch (err) {
-                logServerEvent(`Google Chrome channel launch failed: ${err.message}. Trying WebKit (native H264 support via GStreamer on Linux Arm64)...`, 'warning');
+                logServerEvent(`Default Chromium launch failed: ${err.message}. Trying Google Chrome channel...`, 'warning');
                 try {
-                    browser = await webkit.launch();
-                    logServerEvent('Launched WebKit successfully with H.264 support', 'info');
-                } catch (webkitErr) {
-                    logServerEvent(`WebKit launch failed: ${webkitErr.message}. Trying Firefox...`, 'warning');
+                    browser = await chromium.launch({
+                        channel: 'chrome',
+                        args: [
+                            '--use-fake-ui-for-media-stream',
+                            '--use-fake-device-for-media-stream',
+                            '--no-sandbox',
+                            '--disable-setuid-sandbox',
+                            '--autoplay-policy=no-user-gesture-required',
+                            '--disable-background-timer-throttling',
+                            '--disable-backgrounding-occluded-windows',
+                            '--disable-renderer-backgrounding'
+                        ]
+                    });
+                    logServerEvent('Launched Google Chrome channel successfully', 'info');
+                } catch (chromeErr) {
+                    logServerEvent(`Google Chrome channel launch failed: ${chromeErr.message}. Trying WebKit...`, 'warning');
                     try {
-                        // Try Firefox which has pre-compiled OpenH264 support on ARM64 Linux
-                        browser = await firefox.launch({
-                            firefoxUserPrefs: {
-                                'media.navigator.streams.fake': true,
-                                'media.navigator.permission.disabled': true,
-                                'media.autoplay.default': 0, // Allow autoplay
-                                'dom.webnotifications.enabled': false
-                            }
-                        });
-                        logServerEvent('Launched Firefox successfully with H.264 support', 'info');
-                    } catch (firefoxErr) {
-                        logServerEvent(`Firefox launch failed: ${firefoxErr.message}. Falling back to default Chromium...`, 'warning');
-                        browser = await chromium.launch({
-                            args: [
-                                '--use-fake-ui-for-media-stream',
-                                '--use-fake-device-for-media-stream',
-                                '--no-sandbox',
-                                '--disable-setuid-sandbox',
-                                '--autoplay-policy=no-user-gesture-required',
-                                '--disable-background-timer-throttling',
-                                '--disable-backgrounding-occluded-windows',
-                                '--disable-renderer-backgrounding'
-                            ]
-                        });
-                        logServerEvent('Launched fallback Chromium successfully', 'info');
+                        browser = await webkit.launch();
+                        logServerEvent('Launched WebKit successfully with H.264 support', 'info');
+                    } catch (webkitErr) {
+                        logServerEvent(`WebKit launch failed: ${webkitErr.message}. Trying Firefox...`, 'warning');
+                        try {
+                            browser = await firefox.launch({
+                                firefoxUserPrefs: {
+                                    'media.navigator.streams.fake': true,
+                                    'media.navigator.permission.disabled': true,
+                                    'media.autoplay.default': 0, // Allow autoplay
+                                    'dom.webnotifications.enabled': false
+                                }
+                            });
+                            logServerEvent('Launched Firefox successfully with H.264 support', 'info');
+                        } catch (firefoxErr) {
+                            logServerEvent(`All browser launches failed! Last error: ${firefoxErr.message}`, 'error');
+                            throw new Error('No compatible browser could be launched.');
+                        }
                     }
                 }
             }
